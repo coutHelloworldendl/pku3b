@@ -171,7 +171,6 @@ async fn ta_group_ls(ctx: &CommandCtx<'_>, force: bool, otp_code: String) -> any
     sp.set_message("fetching courses...");
     let user_id = b.user_info_id().await?;
     let ta_courses = b.get_ta_courses(&user_id).await?;
-    sp.finish_and_clear();
     let course_id = select_course(&ta_courses)?;
 
     sp.set_message("fetching groups...");
@@ -218,7 +217,6 @@ async fn ta_group_show(
     sp.set_message("fetching courses...");
     let user_id = b.user_info_id().await?;
     let ta_courses = b.get_ta_courses(&user_id).await?;
-    sp.finish_and_clear();
     let course_id = select_course(&ta_courses)?;
 
     sp.set_message("fetching groups...");
@@ -278,7 +276,6 @@ async fn ta_hw_ls(
     sp.set_message("fetching courses...");
     let user_id = b.user_info_id().await?;
     let ta_courses = b.get_ta_courses(&user_id).await?;
-    sp.finish_and_clear();
     let course_id = select_course(&ta_courses)?;
 
     let group_users: Option<std::collections::HashSet<String>> = if let Some(gid) = group_idx {
@@ -402,7 +399,6 @@ async fn ta_hw_down(
     sp.set_message("fetching courses...");
     let user_id = b.user_info_id().await?;
     let ta_courses = b.get_ta_courses(&user_id).await?;
-    sp.finish_and_clear();
     let course_id = select_course(&ta_courses)?;
 
     // Resolve group
@@ -581,7 +577,6 @@ async fn ta_grade(
     sp.set_message("fetching courses...");
     let user_id = b.user_info_id().await?;
     let ta_courses = b.get_ta_courses(&user_id).await?;
-    sp.finish_and_clear();
     let course_id = select_course(&ta_courses)?;
 
     // Resolve group
