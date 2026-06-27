@@ -38,6 +38,9 @@ enum TaHwCommands {
         /// 按批改组筛选统计
         #[arg(short, long)]
         group: Option<usize>,
+        /// 课程 ID（如 _98207_1），不填则交互选择
+        #[arg(short = 'c', long)]
+        course: Option<String>,
     },
     /// 登分（给作业打分）
     Grade {
@@ -55,6 +58,9 @@ enum TaHwCommands {
         /// 下载/评分全部历史提交（默认只取最新一次）
         #[arg(short = 'A', long, default_value = "false")]
         all_attempts: bool,
+        /// 课程 ID（如 _98207_1），不填则交互选择
+        #[arg(short = 'c', long)]
+        course: Option<String>,
     },
     /// 下载作业提交文件
     Down {
@@ -84,6 +90,9 @@ enum TaHwCommands {
         /// 下载/评分全部历史提交（默认只取最新一次）
         #[arg(short = 'A', long, default_value = "false")]
         all_attempts: bool,
+        /// 课程 ID（如 _98207_1），不填则交互选择
+        #[arg(short = 'c', long)]
+        course: Option<String>,
     },
 }
 
@@ -95,6 +104,9 @@ enum TaGroupCommands {
         force: bool,
         #[arg(long, default_value = "")]
         otp_code: String,
+        /// 课程 ID（如 _98207_1），不填则交互选择
+        #[arg(short = 'c', long)]
+        course: Option<String>,
     },
     /// 查看组成员
     Show {
@@ -103,6 +115,9 @@ enum TaGroupCommands {
         force: bool,
         #[arg(long, default_value = "")]
         otp_code: String,
+        /// 课程 ID（如 _98207_1），不填则交互选择
+        #[arg(short = 'c', long)]
+        course: Option<String>,
     },
 }
 
@@ -114,7 +129,8 @@ pub async fn run(cmd: CommandTa, ctx: &CommandCtx<'_>) -> anyhow::Result<()> {
                 all_term,
                 otp_code,
                 group,
-            } => ta_hw_ls(ctx, force, all_term, otp_code, group).await?,
+                course,
+            } => ta_hw_ls(ctx, force, all_term, otp_code, group, course).await?,
             TaHwCommands::Grade {
                 id,
                 force,
@@ -122,7 +138,20 @@ pub async fn run(cmd: CommandTa, ctx: &CommandCtx<'_>) -> anyhow::Result<()> {
                 group,
                 recheck,
                 all_attempts,
-            } => ta_grade(ctx, id, force, otp_code, group, recheck, all_attempts).await?,
+                course,
+            } => {
+                ta_grade(
+                    ctx,
+                    id,
+                    force,
+                    otp_code,
+                    group,
+                    recheck,
+                    all_attempts,
+                    course,
+                )
+                .await?
+            }
             TaHwCommands::Down {
                 id,
                 force,
@@ -134,6 +163,7 @@ pub async fn run(cmd: CommandTa, ctx: &CommandCtx<'_>) -> anyhow::Result<()> {
                 all_hw,
                 no_rename,
                 all_attempts,
+                course,
             } => {
                 ta_hw_down(
                     ctx,
@@ -147,17 +177,23 @@ pub async fn run(cmd: CommandTa, ctx: &CommandCtx<'_>) -> anyhow::Result<()> {
                     all_hw,
                     no_rename,
                     all_attempts,
+                    course,
                 )
                 .await?
             }
         },
         TaCommands::Group { command } => match command {
-            TaGroupCommands::Ls { force, otp_code } => ta_group_ls(ctx, force, otp_code).await?,
+            TaGroupCommands::Ls {
+                force,
+                otp_code,
+                course,
+            } => ta_group_ls(ctx, force, otp_code, course).await?,
             TaGroupCommands::Show {
                 id,
                 force,
                 otp_code,
-            } => ta_group_show(ctx, id, force, otp_code).await?,
+                course,
+            } => ta_group_show(ctx, id, force, otp_code, course).await?,
         },
     }
     Ok(())
@@ -165,13 +201,18 @@ pub async fn run(cmd: CommandTa, ctx: &CommandCtx<'_>) -> anyhow::Result<()> {
 
 // ── Group commands ──
 
-async fn ta_group_ls(ctx: &CommandCtx<'_>, force: bool, otp_code: String) -> anyhow::Result<()> {
+async fn ta_group_ls(
+    ctx: &CommandCtx<'_>,
+    force: bool,
+    otp_code: String,
+    course: Option<String>,
+) -> anyhow::Result<()> {
     let (b, sp) = load_blackboard(ctx, otp_code, force).await?;
 
     sp.set_message("fetching courses...");
     let user_id = b.user_info_id().await?;
     let ta_courses = b.get_ta_courses(&user_id).await?;
-    let course_id = select_course(&ta_courses)?;
+    let course_id = select_course(&ta_courses, course)?;
 
     sp.set_message("fetching groups...");
     let groups = b.get_course_groups(&course_id).await?;
@@ -211,13 +252,14 @@ async fn ta_group_show(
     id: usize,
     force: bool,
     otp_code: String,
+    course: Option<String>,
 ) -> anyhow::Result<()> {
     let (b, sp) = load_blackboard(ctx, otp_code, force).await?;
 
     sp.set_message("fetching courses...");
     let user_id = b.user_info_id().await?;
     let ta_courses = b.get_ta_courses(&user_id).await?;
-    let course_id = select_course(&ta_courses)?;
+    let course_id = select_course(&ta_courses, course)?;
 
     sp.set_message("fetching groups...");
     let groups = b.get_course_groups(&course_id).await?;
@@ -270,13 +312,14 @@ async fn ta_hw_ls(
     _all_term: bool,
     otp_code: String,
     group_idx: Option<usize>,
+    course: Option<String>,
 ) -> anyhow::Result<()> {
     let (b, sp) = load_blackboard(ctx, otp_code, force).await?;
 
     sp.set_message("fetching courses...");
     let user_id = b.user_info_id().await?;
     let ta_courses = b.get_ta_courses(&user_id).await?;
-    let course_id = select_course(&ta_courses)?;
+    let course_id = select_course(&ta_courses, course)?;
 
     let group_users: Option<std::collections::HashSet<String>> = if let Some(gid) = group_idx {
         let groups = b.get_course_groups(&course_id).await?;
@@ -393,13 +436,14 @@ async fn ta_hw_down(
     all_hw: bool,
     no_rename: bool,
     all_attempts: bool,
+    course: Option<String>,
 ) -> anyhow::Result<()> {
     let (b, sp) = load_blackboard(ctx, otp_code, force).await?;
 
     sp.set_message("fetching courses...");
     let user_id = b.user_info_id().await?;
     let ta_courses = b.get_ta_courses(&user_id).await?;
-    let course_id = select_course(&ta_courses)?;
+    let course_id = select_course(&ta_courses, course)?;
 
     // Resolve group
     sp.set_message("fetching groups...");
@@ -572,12 +616,13 @@ async fn ta_grade(
     group_idx: Option<usize>,
     recheck: bool,
     all_attempts: bool,
+    course: Option<String>,
 ) -> anyhow::Result<()> {
     let (b, sp) = load_blackboard(ctx, otp_code, force).await?;
     sp.set_message("fetching courses...");
     let user_id = b.user_info_id().await?;
     let ta_courses = b.get_ta_courses(&user_id).await?;
-    let course_id = select_course(&ta_courses)?;
+    let course_id = select_course(&ta_courses, course)?;
 
     // Resolve group
     let groups = b.get_course_groups(&course_id).await?;
@@ -830,12 +875,19 @@ fn resolve_hw<'a>(
 
 fn select_course(
     enrollments: &[crate::api::blackboard::CourseEnrollment],
+    preferred: Option<String>,
 ) -> anyhow::Result<String> {
     if enrollments.is_empty() {
         anyhow::bail!("no TeachingAssistant courses found (hint: check your account permissions)");
     }
     if enrollments.len() == 1 {
         return Ok(enrollments[0].course_id.clone());
+    }
+    if let Some(ref cid) = preferred {
+        if enrollments.iter().any(|e| e.course_id == *cid) {
+            return Ok(cid.clone());
+        }
+        anyhow::bail!("course '{cid}' not found in your TA enrollments");
     }
     let items: Vec<String> = enrollments
         .iter()
