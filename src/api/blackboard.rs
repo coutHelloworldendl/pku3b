@@ -202,7 +202,7 @@ impl Blackboard {
             .0
             .http_client
             .api_get(&format!(
-                "https://course.pku.edu.cn/learn/api/public/v1/users/{}/courses",
+                "https://course.pku.edu.cn/learn/api/public/v1/users/{}/courses?expand=course",
                 user_id
             ))
             .await
