@@ -737,6 +737,30 @@ async fn ta_grade(
         .await
         .context("get nonce")?;
 
+    // Batch grading mode: -S <score> without -s — grade all pending
+    if let Some(score_val) = score_arg {
+        sp.set_message("batch grading...");
+        let mut graded = 0usize;
+        let total = pending.len();
+        for a in &pending {
+            b.save_grade(
+                &a.attempt_id,
+                &hw_col.id,
+                score_val,
+                &course_id,
+                &nonce,
+                None,
+            )
+            .await?;
+            graded += 1;
+            sp.set_message(format!("batch grading [{graded}/{total}]"));
+        }
+        sp.finish_with_message(format!(
+            "  {GR}✓{GR:#} {graded}/{total} graded = {score_val}"
+        ));
+        return Ok(());
+    }
+
     sp.finish_and_clear();
 
     let mp = pbar::new_spinner_on(ctx.multi);
