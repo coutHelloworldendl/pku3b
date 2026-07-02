@@ -739,9 +739,19 @@ async fn ta_grade(
 
     // Batch grading mode: -S <score> without -s — grade all pending
     if let Some(score_val) = score_arg {
+        let total = pending.len();
+        sp.finish_and_clear();
+        let confirmed = inquire::Confirm::new(&format!(
+            "确认给 {B}{}{B:#} 全组 {total} 人打 {RD}{score_val}{RD:#} 分？",
+            group.name
+        ))
+        .with_default(false)
+        .prompt()?;
+        if !confirmed {
+            return Ok(());
+        }
         sp.set_message("batch grading...");
         let mut graded = 0usize;
-        let total = pending.len();
         for a in &pending {
             b.save_grade(
                 &a.attempt_id,
