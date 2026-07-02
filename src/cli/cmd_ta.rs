@@ -45,6 +45,7 @@ enum TaHwCommands {
     /// 登分（给作业打分）
     Grade {
         /// 作业编号（不填则交互选择）
+        #[arg(short = 'i', long = "id")]
         id: Option<usize>,
         #[arg(short, long, default_value = "false")]
         force: bool,
@@ -68,6 +69,7 @@ enum TaHwCommands {
     /// 下载作业提交文件
     Down {
         /// 作业编号（不填则交互选择）
+        #[arg(short = 'i', long = "id")]
         id: Option<usize>,
         #[arg(short, long, default_value = "false")]
         force: bool,
