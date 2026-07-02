@@ -629,11 +629,6 @@ async fn ta_grade(
     let ta_courses = b.get_ta_courses(&user_id).await?;
     let course_id = select_course(&ta_courses, course)?;
 
-    // Resolve group
-    let groups = b.get_course_groups(&course_id).await?;
-    let sub_groups: Vec<&CourseGroup> = groups.iter().filter(|g| !g.is_group_set).collect();
-    let group = resolve_group(&sub_groups, group_idx)?;
-
     // Resolve HW
     let detail = b.course_detail(&course_id).await?;
     let columns = detail.gradebook_columns().await?;
@@ -646,6 +641,46 @@ async fn ta_grade(
         .load_reconcile_data(&course_id, &hw_col.id)
         .await
         .context("fetch reconcile data")?;
+
+    // Direct grading mode: -s <student> -S <score> — no group needed
+    if let (Some(sid), Some(score_val)) = (&student, score_arg) {
+        let nonce = b
+            .get_reconcile_nonce(&course_id, &hw_col.id)
+            .await
+            .context("get nonce")?;
+        let targets: Vec<&crate::api::blackboard::ReconcileAttempt> = data
+            .attempts
+            .iter()
+            .filter(|a| &a.student_user_id == sid)
+            .collect();
+        if targets.is_empty() {
+            anyhow::bail!("student '{sid}' not found in grading data");
+        }
+        sp.set_message("grading...");
+        for a in &targets {
+            b.save_grade(
+                &a.attempt_id,
+                &hw_col.id,
+                score_val,
+                &course_id,
+                &nonce,
+                None,
+            )
+            .await?;
+        }
+        let name = b.get_user_name(sid).await.unwrap_or_else(|_| sid.clone());
+        sp.finish_with_message(format!(
+            "  {GR}✓{GR:#} {name} = {score_val}  ({D}{} attempts{})",
+            targets.len(),
+            "{D:#}"
+        ));
+        return Ok(());
+    }
+
+    // Resolve group
+    let groups = b.get_course_groups(&course_id).await?;
+    let sub_groups: Vec<&CourseGroup> = groups.iter().filter(|g| !g.is_group_set).collect();
+    let group = resolve_group(&sub_groups, group_idx)?;
 
     // Get group members + membership mapping
     let group_members: std::collections::HashSet<String> = b
@@ -697,37 +732,6 @@ async fn ta_grade(
         .get_reconcile_nonce(&course_id, &hw_col.id)
         .await
         .context("get nonce")?;
-
-    // Direct grading mode: -s <student> -S <score>
-    if let (Some(sid), Some(score_val)) = (&student, score_arg) {
-        let targets: Vec<&crate::api::blackboard::ReconcileAttempt> = data
-            .attempts
-            .iter()
-            .filter(|a| &a.student_user_id == sid)
-            .collect();
-        if targets.is_empty() {
-            anyhow::bail!("student '{sid}' not found in grading data");
-        }
-        sp.finish_with_message("grading...");
-        for a in &targets {
-            b.save_grade(
-                &a.attempt_id,
-                &hw_col.id,
-                score_val,
-                &course_id,
-                &nonce,
-                None,
-            )
-            .await?;
-        }
-        let name = b.get_user_name(sid).await.unwrap_or_else(|_| sid.clone());
-        println!(
-            "  {GR}✓{GR:#} {name} = {score_val}  ({D}{} attempts{})",
-            targets.len(),
-            "{D:#}"
-        );
-        return Ok(());
-    }
 
     sp.finish_and_clear();
 
