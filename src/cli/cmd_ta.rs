@@ -58,6 +58,12 @@ enum TaHwCommands {
         /// 下载/评分全部历史提交（默认只取最新一次）
         #[arg(short = 'A', long, default_value = "false")]
         all_attempts: bool,
+        /// 直接给指定学生打分（学号，如 _170599_1），跳过交互
+        #[arg(short = 's', long, value_name = "USER_ID")]
+        student: Option<String>,
+        /// 分数（与 -s 配合使用）
+        #[arg(short = 'S', long, value_name = "SCORE", allow_hyphen_values = true)]
+        score: Option<f64>,
         /// 课程 ID（如 _98207_1），不填则交互选择
         #[arg(short = 'c', long)]
         course: Option<String>,
@@ -75,10 +81,7 @@ enum TaHwCommands {
         /// 批改组编号
         #[arg(short, long)]
         group: Option<usize>,
-        /// 只下载未评分的
-        #[arg(short = 'u', long, default_value = "false")]
-        ungraded: bool,
-        /// 下载全部（含已评分）
+        /// 下载全部（含已评分），默认仅未评分
         #[arg(short = 'a', long, default_value = "false")]
         all: bool,
         /// 下载所有作业的未评分提交（不弹出选择）
@@ -138,6 +141,8 @@ pub async fn run(cmd: CommandTa, ctx: &CommandCtx<'_>) -> anyhow::Result<()> {
                 group,
                 recheck,
                 all_attempts,
+                student,
+                score,
                 course,
             } => {
                 ta_grade(
@@ -148,6 +153,8 @@ pub async fn run(cmd: CommandTa, ctx: &CommandCtx<'_>) -> anyhow::Result<()> {
                     group,
                     recheck,
                     all_attempts,
+                    student,
+                    score,
                     course,
                 )
                 .await?
@@ -158,7 +165,6 @@ pub async fn run(cmd: CommandTa, ctx: &CommandCtx<'_>) -> anyhow::Result<()> {
                 all_term,
                 otp_code,
                 group,
-                ungraded,
                 all,
                 all_hw,
                 no_rename,
@@ -172,7 +178,6 @@ pub async fn run(cmd: CommandTa, ctx: &CommandCtx<'_>) -> anyhow::Result<()> {
                     all_term,
                     otp_code,
                     group,
-                    ungraded,
                     all,
                     all_hw,
                     no_rename,
@@ -431,7 +436,6 @@ async fn ta_hw_down(
     _all_term: bool,
     otp_code: String,
     group_idx: Option<usize>,
-    ungraded: bool,
     all: bool,
     all_hw: bool,
     no_rename: bool,
@@ -502,9 +506,8 @@ async fn ta_hw_down(
         // Filter: group members only
         attempts.retain(|a| group_members.contains(&a.user_id));
 
-        // Default to ungraded only when all_hw
-        let only_ungraded = if all_hw { true } else { ungraded && !all };
-        if only_ungraded {
+        // Default to ungraded only; use -a to include already-graded submissions
+        if !all {
             attempts.retain(|a| a.status.as_deref() == Some("NeedsGrading") && !a.exempt);
         }
 
@@ -616,6 +619,8 @@ async fn ta_grade(
     group_idx: Option<usize>,
     recheck: bool,
     all_attempts: bool,
+    student: Option<String>,
+    score_arg: Option<f64>,
     course: Option<String>,
 ) -> anyhow::Result<()> {
     let (b, sp) = load_blackboard(ctx, otp_code, force).await?;
@@ -692,6 +697,37 @@ async fn ta_grade(
         .get_reconcile_nonce(&course_id, &hw_col.id)
         .await
         .context("get nonce")?;
+
+    // Direct grading mode: -s <student> -S <score>
+    if let (Some(sid), Some(score_val)) = (&student, score_arg) {
+        let targets: Vec<&crate::api::blackboard::ReconcileAttempt> = data
+            .attempts
+            .iter()
+            .filter(|a| &a.student_user_id == sid)
+            .collect();
+        if targets.is_empty() {
+            anyhow::bail!("student '{sid}' not found in grading data");
+        }
+        sp.finish_with_message("grading...");
+        for a in &targets {
+            b.save_grade(
+                &a.attempt_id,
+                &hw_col.id,
+                score_val,
+                &course_id,
+                &nonce,
+                None,
+            )
+            .await?;
+        }
+        let name = b.get_user_name(sid).await.unwrap_or_else(|_| sid.clone());
+        println!(
+            "  {GR}✓{GR:#} {name} = {score_val}  ({D}{} attempts{})",
+            targets.len(),
+            "{D:#}"
+        );
+        return Ok(());
+    }
 
     sp.finish_and_clear();
 
