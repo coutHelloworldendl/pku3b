@@ -52,9 +52,6 @@ enum TaHwCommands {
         otp_code: String,
         #[arg(short, long)]
         group: Option<usize>,
-        /// 复查已评分提交
-        #[arg(short, long, default_value = "false")]
-        recheck: bool,
         /// 下载/评分全部历史提交（默认只取最新一次）
         #[arg(short = 'A', long, default_value = "false")]
         all_attempts: bool,
@@ -139,7 +136,6 @@ pub async fn run(cmd: CommandTa, ctx: &CommandCtx<'_>) -> anyhow::Result<()> {
                 force,
                 otp_code,
                 group,
-                recheck,
                 all_attempts,
                 student,
                 score,
@@ -151,7 +147,6 @@ pub async fn run(cmd: CommandTa, ctx: &CommandCtx<'_>) -> anyhow::Result<()> {
                     force,
                     otp_code,
                     group,
-                    recheck,
                     all_attempts,
                     student,
                     score,
@@ -617,7 +612,6 @@ async fn ta_grade(
     force: bool,
     otp_code: String,
     group_idx: Option<usize>,
-    recheck: bool,
     all_attempts: bool,
     student: Option<String>,
     score_arg: Option<f64>,
@@ -707,14 +701,7 @@ async fn ta_grade(
     let mut pending: Vec<&crate::api::blackboard::ReconcileAttempt> = data
         .attempts
         .iter()
-        .filter(|a| {
-            let in_group = group_members.contains(&a.student_user_id);
-            if recheck {
-                in_group
-            } else {
-                in_group && a.status == "NEEDS_GRADING"
-            }
-        })
+        .filter(|a| group_members.contains(&a.student_user_id) && a.status == "NEEDS_GRADING")
         .collect();
     pending.sort_by(|a, b| a.student_user_id.cmp(&b.student_user_id));
 
@@ -759,21 +746,6 @@ async fn ta_grade(
             .get_user_name(&a.student_user_id)
             .await
             .unwrap_or_else(|_| a.student_user_id.clone());
-
-        // If recheck, show existing grade
-        if recheck {
-            let existing = a.provisional_grades.first();
-            if let Some(pg) = existing {
-                println!(
-                    "  [{}/{}] {} 当前分数: {:.1} (状态: {})",
-                    i + 1,
-                    total,
-                    name,
-                    pg.score.unwrap_or(0.0),
-                    pg.status
-                );
-            }
-        }
 
         let prompt = format!("[{}/{}] {} (满分 {:.0}):", i + 1, total, name, possible);
         let input: String = inquire::Text::new(&prompt)

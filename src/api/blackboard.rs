@@ -480,7 +480,8 @@ pub struct ProvisionalGrade {
     #[serde(default)]
     pub _grader_user_id: Option<String>,
     pub score: Option<f64>,
-    pub status: String,
+    #[serde(rename = "status")]
+    pub _status: String,
 }
 
 #[derive(Debug, Deserialize)]
