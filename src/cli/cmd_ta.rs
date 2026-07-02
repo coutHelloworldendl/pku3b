@@ -642,12 +642,8 @@ async fn ta_grade(
         .await
         .context("fetch reconcile data")?;
 
-    // Direct grading mode: -s <student> -S <score> — no group needed
-    if let (Some(sid), Some(score_val)) = (&student, score_arg) {
-        let nonce = b
-            .get_reconcile_nonce(&course_id, &hw_col.id)
-            .await
-            .context("get nonce")?;
+    // Direct grading mode: -s <student> — no group needed
+    if let Some(sid) = &student {
         let targets: Vec<&crate::api::blackboard::ReconcileAttempt> = data
             .attempts
             .iter()
@@ -656,6 +652,26 @@ async fn ta_grade(
         if targets.is_empty() {
             anyhow::bail!("student '{sid}' not found in grading data");
         }
+        let name = b.get_user_name(sid).await.unwrap_or_else(|_| sid.clone());
+        let existing = targets
+            .first()
+            .and_then(|a| a.provisional_grades.first())
+            .and_then(|pg| pg.score)
+            .map(|s| format!(" (当前: {s})"))
+            .unwrap_or_default();
+        let score_val = match score_arg {
+            Some(s) => s,
+            None => {
+                sp.finish_and_clear();
+                let prompt = format!("{name}{existing} (满分 {possible:.0}):");
+                let input: String = inquire::Text::new(&prompt).prompt()?;
+                input.trim().parse().context("invalid score")?
+            }
+        };
+        let nonce = b
+            .get_reconcile_nonce(&course_id, &hw_col.id)
+            .await
+            .context("get nonce")?;
         sp.set_message("grading...");
         for a in &targets {
             b.save_grade(
@@ -668,7 +684,6 @@ async fn ta_grade(
             )
             .await?;
         }
-        let name = b.get_user_name(sid).await.unwrap_or_else(|_| sid.clone());
         sp.finish_with_message(format!(
             "  {GR}✓{GR:#} {name} = {score_val}  ({D}{} attempts{})",
             targets.len(),
